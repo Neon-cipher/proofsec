@@ -8,9 +8,7 @@ from analyzer import (
 from report import generate_markdown_report
 from schemas import (
     FindingInput,
-    SeverityEstimate,
     TriageAssessment,
-    TriageStatus,
 )
 
 # Page configuration
@@ -21,6 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Custom minimal styling
 st.markdown(
     """
     <style>
@@ -28,14 +27,16 @@ st.markdown(
         background-color: #1a1e24;
         border: 1px solid #2d3748;
         border-radius: 8px;
-        padding: 14px;
+        padding: 12px;
         text-align: center;
     }
-    .status-badge {
-        font-weight: 600;
-        padding: 4px 10px;
+    .disclaimer-box {
+        background-color: #262111;
+        border-left: 4px solid #f6ad55;
+        padding: 10px 14px;
         border-radius: 4px;
-        display: inline-block;
+        margin-bottom: 12px;
+        font-size: 0.9rem;
     }
     </style>
     """,
@@ -45,20 +46,32 @@ st.markdown(
 st.title("🛡️ ProofSec AI")
 st.caption("Evidence-First Vulnerability Triage Assistant (Local Inference)")
 
-# Sidebar: Local Model & Endpoint Configuration
-st.sidebar.header("⚙️ Local Inference Engine")
-base_url_input = st.sidebar.text_input(
-    "Ollama Base URL",
-    value="http://localhost:11434",
-    help="Address of your locally running Ollama instance (default: http://localhost:11434).",
-)
-
+# Session state initialization
+if "f_title" not in st.session_state:
+    st.session_state.f_title = ""
+if "f_target" not in st.session_state:
+    st.session_state.f_target = ""
+if "f_desc" not in st.session_state:
+    st.session_state.f_desc = ""
+if "f_evidence" not in st.session_state:
+    st.session_state.f_evidence = ""
+if "f_model" not in st.session_state:
+    st.session_state.f_model = ""
 if "installed_models" not in st.session_state:
     st.session_state.installed_models = []
 if "last_assessment" not in st.session_state:
     st.session_state.last_assessment = None
 if "last_finding" not in st.session_state:
     st.session_state.last_finding = None
+
+# Sidebar: Local Model & Endpoint Configuration
+st.sidebar.header("⚙️ Local Inference Engine")
+base_url_input = st.sidebar.text_input(
+    "Ollama Base URL",
+    value="http://localhost:11434",
+    key="base_url",
+    help="Address of your locally running Ollama instance.",
+)
 
 analyzer = LocalModelAnalyzer(base_url=base_url_input)
 
@@ -84,9 +97,9 @@ if st.session_state.installed_models:
 else:
     selected_model = st.sidebar.text_input(
         "Local Model Name",
-        value="",
+        key="f_model",
         placeholder="e.g., mistral, llama3, qwen2.5-coder",
-        help="Specify the name of a model already pulled on your local Ollama server.",
+        help="Specify the name of a model installed on your local server.",
     )
 
 st.sidebar.divider()
@@ -100,6 +113,7 @@ st.sidebar.markdown(
     """
 )
 
+# Preset for quick evaluation
 SAMPLE_FINDING = {
     "title": "Unauthenticated Path Traversal via /download Parameter",
     "target": "https://api.internal/download?file=",
@@ -116,39 +130,41 @@ SAMPLE_FINDING = {
     ),
 }
 
+def load_sample_preset():
+    st.session_state.f_title = SAMPLE_FINDING["title"]
+    st.session_state.f_target = SAMPLE_FINDING["target"]
+    st.session_state.f_desc = SAMPLE_FINDING["description"]
+    st.session_state.f_evidence = SAMPLE_FINDING["evidence"]
+
 col_input, col_output = st.columns([1, 1], gap="medium")
 
 with col_input:
     st.subheader("1. Finding & Evidence Input")
 
-    if st.button("Load Sample Finding Preset"):
-        st.session_state.f_title = SAMPLE_FINDING["title"]
-        st.session_state.f_target = SAMPLE_FINDING["target"]
-        st.session_state.f_desc = SAMPLE_FINDING["description"]
-        st.session_state.f_evidence = SAMPLE_FINDING["evidence"]
+    st.button("Load Sample Finding Preset", on_click=load_sample_preset)
 
     title = st.text_input(
         "Finding Title *",
-        value=st.session_state.get("f_title", ""),
+        key="f_title",
         placeholder="e.g., Remote Code Execution in Image Processor",
     )
 
     target = st.text_input(
         "Target Component / URL (Optional)",
-        value=st.session_state.get("f_target", ""),
+        key="f_target",
         placeholder="e.g., /api/v1/render",
     )
 
     description = st.text_area(
         "Finding Description / Context (Optional)",
-        value=st.session_state.get("f_desc", ""),
+        key="f_desc",
         height=90,
         placeholder="Reported narrative, attack scenario, or scanner context...",
     )
 
     evidence = st.text_area(
         "Supplied Technical Evidence * (Max 64KB)",
-        value=st.session_state.get("f_evidence", ""),
+        key="f_evidence",
         height=200,
         placeholder=(
             "Paste verifiable technical proof here:\n"
@@ -166,6 +182,7 @@ with col_input:
             st.error("Please specify or select a local model in the sidebar.")
         else:
             try:
+                # Validates input via Pydantic model (rejects empty strings or oversized evidence)
                 finding_obj = FindingInput(
                     title=title,
                     evidence=evidence,
@@ -179,7 +196,7 @@ with col_input:
                     st.session_state.last_finding = finding_obj
                     st.success("Triage analysis complete.")
             except ProofSecError as err:
-                st.error(f"Triage Engine Notice: {err}")
+                st.error(f"Inference Engine Notice: {err}")
             except Exception as err:
                 st.error(f"Input Validation Error: {err}")
 
@@ -190,12 +207,23 @@ with col_output:
         assessment: TriageAssessment = st.session_state.last_assessment
         finding: FindingInput = st.session_state.last_finding
 
+        # Explicit AI Disclaimer Banner
+        st.warning(
+            "⚠️ **Disclaimer:** AI triage provides assistive evidence analysis. It does **not** "
+            "constitute independent vulnerability verification or confirmed exploitability."
+        )
+
+        # High-level assessment metrics
         m1, m2, m3 = st.columns(3)
         m1.metric("Status", assessment.status.value.upper())
-        m2.metric("Severity", assessment.severity.value.upper())
-        m3.metric("Confidence", f"{assessment.confidence.score}/100")
+        m2.metric("Estimated Severity", assessment.severity.value.upper())
+        m3.metric("Confidence Score", f"{assessment.confidence.score}/100")
 
         st.info(f"**Confidence Rationale:** {assessment.confidence.rationale}")
+
+        # Expander for submitted evidence inspection
+        with st.expander("🔍 View Submitted Technical Evidence (Untrusted Input)", expanded=False):
+            st.code(finding.evidence, language="text")
 
         tab_eval, tab_remed, tab_report, tab_json = st.tabs(
             ["🔬 Observations & Interpretations", "🛠️ Validation & Remediation", "📄 Markdown Report", "🔍 Schema JSON"]
@@ -203,39 +231,47 @@ with col_output:
 
         with tab_eval:
             st.markdown("### Factual Technical Observations")
+            st.caption("Verifiable technical facts extracted directly from the supplied evidence:")
             for o in assessment.observations:
                 st.markdown(f"- {o}")
 
+            st.divider()
             st.markdown("### Analytical Interpretations")
+            st.caption("Security deductions and analytical conclusions:")
             for i in assessment.interpretations:
                 st.markdown(f"- {i}")
 
-            st.markdown("### Missing Evidence")
+            st.divider()
+            st.markdown("### Missing Evidence Gaps")
             if assessment.missing_evidence:
                 for m in assessment.missing_evidence:
                     st.markdown(f"- ⚠️ {m}")
             else:
-                st.write("None identified.")
+                st.write("None identified. Submitted evidence was sufficient for this assessment level.")
 
         with tab_remed:
             st.markdown("### Safe Analyst Validation Steps")
+            st.caption("Recommended non-destructive verification procedures for human analysts:")
             for v in assessment.validation_recommendations:
                 st.markdown(f"- 🧪 {v}")
 
-            st.markdown("### Remediation Actions")
+            st.divider()
+            st.markdown("### Recommended Remediation Actions")
             for r in assessment.remediation:
                 st.markdown(f"- 🔒 {r}")
 
+            st.divider()
             st.markdown("### Assessment Limitations")
             for l in assessment.limitations:
                 st.markdown(f"- ℹ️ {l}")
 
         with tab_report:
             report_md = generate_markdown_report(assessment, finding)
+            safe_filename = f"triage_report_{assessment.finding_title.lower().replace(' ', '_')[:30]}.md"
             st.download_button(
                 label="📥 Download Markdown Report (.md)",
                 data=report_md,
-                file_name=f"triage_report_{assessment.finding_title.lower().replace(' ', '_')[:30]}.md",
+                file_name=safe_filename,
                 mime="text/markdown",
                 use_container_width=True,
             )
