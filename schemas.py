@@ -1,75 +1,103 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+
+MAX_EVIDENCE_LENGTH = 65_536  # 64 KB limit to prevent prompt flooding / resource exhaustion
 
 
-class SeverityLevel(str, Enum):
-    CRITICAL = "CRITICAL"
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-    INFO = "INFO"
-    UNKNOWN = "UNKNOWN"
+class TriageStatus(str, Enum):
+    SUPPORTED = "supported"
+    INCONCLUSIVE = "inconclusive"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    CONTRADICTED = "contradicted"
 
 
-class TriageVerdict(str, Enum):
-    CONFIRMED = "CONFIRMED"
-    LIKELY_FALSE_POSITIVE = "LIKELY_FALSE_POSITIVE"
-    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
-    NEEDS_FURTHER_INVESTIGATION = "NEEDS_FURTHER_INVESTIGATION"
-
-
-class EvidenceQuality(str, Enum):
-    STRONG = "STRONG"
-    MODERATE = "MODERATE"
-    WEAK = "WEAK"
-    NONE = "NONE"
+class SeverityEstimate(str, Enum):
+    INFORMATIONAL = "informational"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+    UNDETERMINED = "undetermined"
 
 
 class FindingInput(BaseModel):
-    title: str = Field(..., min_length=3, max_length=200, description="Short title of the vulnerability finding")
-    vulnerability_type: str = Field(..., min_length=2, max_length=100, description="Type or classification (e.g., SQL Injection, SSRF)")
-    cwe_id: Optional[str] = Field(None, max_length=30, description="Optional CWE identifier (e.g., CWE-89)")
-    reported_severity: SeverityLevel = Field(default=SeverityLevel.MEDIUM, description="Initial reporter-assigned severity")
-    target_component: Optional[str] = Field(None, max_length=255, description="Affected URL, endpoint, microservice, or source file")
-    description: str = Field(..., min_length=10, description="Narrative summary of the vulnerability report")
-    evidence_text: str = Field(..., min_length=5, description="Raw supporting evidence: HTTP requests/responses, logs, code snippets, or PoC output")
+    model_config = ConfigDict(str_strip_whitespace=True)
 
-    @field_validator("title", "vulnerability_type", "description", "evidence_text")
+    title: str = Field(..., min_length=1, max_length=255, description="Title of the vulnerability finding")
+    evidence: str = Field(..., min_length=1, description="Raw technical proof (logs, HTTP request/response, snippet)")
+    description: Optional[str] = Field(default="", max_length=10000, description="Optional finding background/context")
+    target: Optional[str] = Field(default="", max_length=500, description="Optional component, URL, or affected asset")
+
+    @field_validator("title")
     @classmethod
-    def strip_whitespace(cls, v: str) -> str:
-        v_stripped = v.strip()
-        if not v_stripped:
-            raise ValueError("Field cannot be empty or only whitespace")
-        return v_stripped
+    def validate_title_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Finding title cannot be empty or whitespace only.")
+        return v.strip()
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_evidence(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Evidence cannot be empty or whitespace only.")
+        if len(stripped) > MAX_EVIDENCE_LENGTH:
+            raise ValueError(
+                f"Evidence length ({len(stripped)} chars) exceeds maximum allowed size ({MAX_EVIDENCE_LENGTH} chars)."
+            )
+        return stripped
+
+
+class ConfidenceAssessment(BaseModel):
+    score: int = Field(..., ge=0, le=100, description="Confidence score bounded between 0 and 100")
+    rationale: str = Field(..., min_length=1, description="Reasoning behind the confidence score")
+
+    @field_validator("rationale")
+    @classmethod
+    def validate_rationale(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Confidence rationale cannot be empty.")
+        return v.strip()
 
 
 class TriageAssessment(BaseModel):
-    verdict: TriageVerdict = Field(..., description="Evidence-backed triage conclusion")
-    adjusted_severity: SeverityLevel = Field(..., description="Evaluated severity based on verified evidence")
-    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Assessment confidence score between 0.0 and 1.0")
-    evidence_quality: EvidenceQuality = Field(..., description="Quality of the provided proof/evidence")
-    summary: str = Field(..., min_length=10, description="Concise executive summary of the triage analysis")
-    evidence_analysis: str = Field(..., min_length=10, description="Detailed analysis of provided evidence validity and impact")
-    key_findings: List[str] = Field(default_factory=list, description="List of validated observations from the report")
-    missing_evidence: List[str] = Field(default_factory=list, description="Evidence gaps required to reach full verification")
-    remediation_recommendations: List[str] = Field(default_factory=list, description="Actionable fix or mitigation guidance")
-    model_name: str = Field(default="unknown-model", description="Identifier of the model that executed the triage")
-    analyzed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="UTC timestamp of the triage run")
-
-
-class OllamaEndpointConfig(BaseModel):
-    base_url: str = Field(default="http://localhost:11434", description="Base URL of Ollama inference service")
-    model_name: str = Field(default="", description="Target model name deployed on Ollama")
-    timeout_seconds: int = Field(default=60, ge=5, le=300, description="HTTP request timeout in seconds")
-
-    @field_validator("base_url")
-    @classmethod
-    def normalize_base_url(cls, v: str) -> str:
-        v = v.strip().rstrip("/")
-        if not (v.startswith("http://") or v.startswith("https://")):
-            raise ValueError("base_url must start with http:// or https://")
-        return v
+    finding_title: str = Field(..., min_length=1, description="Title of the finding analyzed")
+    status: TriageStatus = Field(
+        ...,
+        description=(
+            "Triage conclusion: 'supported' indicates submitted evidence supports the claim "
+            "(does not imply independent reproduction or confirmed exploitability); "
+            "'inconclusive', 'insufficient_evidence', or 'contradicted'."
+        ),
+    )
+    severity: SeverityEstimate = Field(..., description="Estimated severity based on evidence")
+    confidence: ConfidenceAssessment = Field(..., description="Bounded confidence score (0-100) and rationale")
+    observations: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Factual, verifiable technical observations derived directly from the supplied evidence",
+    )
+    interpretations: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Security deductions and analytical conclusions (separated from factual observations)",
+    )
+    missing_evidence: List[str] = Field(
+        default_factory=list,
+        description="Specific technical proof or context missing that would be needed for conclusive validation",
+    )
+    validation_recommendations: List[str] = Field(
+        default_factory=list,
+        description="Concrete, safe verification steps an analyst should perform manually to reproduce or verify",
+    )
+    remediation: List[str] = Field(
+        default_factory=list,
+        description="Actionable mitigation or remediation guidance",
+    )
+    limitations: List[str] = Field(
+        default_factory=list,
+        description="Known limitations of this automated assessment",
+    )

@@ -1,85 +1,103 @@
 from __future__ import annotations
 
+from typing import Optional
 from schemas import FindingInput, TriageAssessment
 
 
-def generate_markdown_report(finding: FindingInput, assessment: TriageAssessment) -> str:
-    """Generate a clean, structured Markdown security triage report."""
-    key_findings_md = (
-        "\n".join([f"- {f}" for f in assessment.key_findings])
-        if assessment.key_findings
-        else "- None noted."
-    )
+def generate_markdown_report(
+    assessment: TriageAssessment,
+    finding: Optional[FindingInput] = None,
+) -> str:
+    """Generate a structured Markdown report from a validated TriageAssessment."""
+    obs_lines = "\n".join(f"- {o}" for o in assessment.observations)
+    interp_lines = "\n".join(f"- {i}" for i in assessment.interpretations)
 
-    missing_evidence_md = (
-        "\n".join([f"- {m}" for m in assessment.missing_evidence])
+    missing_lines = (
+        "\n".join(f"- {m}" for m in assessment.missing_evidence)
         if assessment.missing_evidence
-        else "- No outstanding evidence gaps identified."
+        else "- None noted. Submitted evidence was sufficient for this assessment level."
     )
 
-    remediation_md = (
-        "\n".join([f"- {r}" for r in assessment.remediation_recommendations])
-        if assessment.remediation_recommendations
-        else "- Refer to standard organizational mitigation guidelines."
+    validation_lines = (
+        "\n".join(f"- {v}" for v in assessment.validation_recommendations)
+        if assessment.validation_recommendations
+        else "- No automated or manual validation steps provided."
     )
 
-    analyzed_timestamp = assessment.analyzed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+    remediation_lines = (
+        "\n".join(f"- {r}" for r in assessment.remediation)
+        if assessment.remediation
+        else "- Refer to standard organizational patching and defense-in-depth baselines."
+    )
 
-    report = f"""# ProofSec AI Triage Report: {finding.title}
+    limitations_lines = (
+        "\n".join(f"- {l}" for l in assessment.limitations)
+        if assessment.limitations
+        else "- Standard automated heuristic analysis limitations apply."
+    )
 
-**Report Generated:** {analyzed_timestamp}  
-**Triage Engine:** {assessment.model_name}  
+    evidence_section = ""
+    if finding and finding.evidence:
+        evidence_section = f"""
+## 5. Supplied Evidence (Untrusted Input)
 
----
+```text
+{finding.evidence}
+```
+"""
+
+    report = f"""# ProofSec AI Triage Report: {assessment.finding_title}
 
 ## 1. Executive Summary
 
-| Attribute | Assessment |
+| Metric | Determination |
 | :--- | :--- |
-| **Verdict** | **{assessment.verdict.value}** |
-| **Adjusted Severity** | `{assessment.adjusted_severity.value}` (Reported: `{finding.reported_severity.value}`) |
-| **Evidence Quality** | `{assessment.evidence_quality.value}` |
-| **Confidence Score** | `{assessment.confidence_score * 100:.1f}%` |
-| **Vulnerability Type** | {finding.vulnerability_type} |
-| **CWE ID** | {finding.cwe_id or "N/A"} |
-| **Target Component** | `{finding.target_component or "N/A"}` |
+| **Triage Status** | `{assessment.status.value.upper()}` |
+| **Estimated Severity** | `{assessment.severity.value.upper()}` |
+| **Confidence Score** | `{assessment.confidence.score}/100` |
+| **Confidence Rationale** | {assessment.confidence.rationale} |
 
-### Summary
-{assessment.summary}
+> **Status Notice:** A status of `SUPPORTED` means the submitted evidence supports the reported claim. It does not establish independent reproduction, live weaponization, or confirmed operational exploitability.
 
 ---
 
-## 2. Technical Evidence Analysis
+## 2. Technical Observations & Interpretations
 
-### Evidence-First Evaluation
-{assessment.evidence_analysis}
+### Factual Technical Observations
+*(Direct facts verifiable from supplied evidence)*
+{obs_lines}
 
-### Validated Technical Observations
-{key_findings_md}
-
-### Evidence Gaps / Missing Proof
-{missing_evidence_md}
-
----
-
-## 3. Supplied Finding Context
-
-### Description
-{finding.description}
-
-### Raw Supplied Evidence
-```text
-{finding.evidence_text}
-```
+### Analytical Interpretations
+*(Security deduction and analytical conclusions)*
+{interp_lines}
 
 ---
 
-## 4. Remediation & Actionable Guidance
+## 3. Evidence Gaps & Manual Validation Recommendations
 
-{remediation_md}
+### Missing Evidence
+{missing_lines}
+
+### Safe Validation Steps for Security Analysts
+{validation_lines}
 
 ---
 
-*Disclaimer: This report was automatically produced by ProofSec AI using local AI inference as assistive triage. Determinations should be validated by application security analysts prior to production deployment or service modifications.*
+## 4. Remediation & Limitations
+
+### Recommended Remediation Actions
+{remediation_lines}
+
+### Assessment Limitations
+{limitations_lines}
+{evidence_section}
+---
+
+## ⚠️ AI Assessment Disclaimer
+
+This report was generated by ProofSec AI using an open-weight local language model. 
+- **Untrusted Input**: All findings and evidence are analyzed as passive, untrusted text without live execution or scanning.
+- **Assurance**: Model confidence is an internal estimate of textual evidence consistency and is **not** a calibrated mathematical probability of exploitation.
+- **Verification**: Decisions to patch, deploy, or close reports must be verified by a qualified human security analyst.
 """
     return report.strip()
