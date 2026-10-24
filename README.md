@@ -1,133 +1,240 @@
 # ProofSec AI 🛡️
+> **Evidence-First Vulnerability Triage Assistant**  
+> *Category Submission: Best Open-Source AI Project — Hacktoberfest Hack Day Ahmedabad*
 
-ProofSec AI is a minimal, evidence-first vulnerability triage assistant built for application security teams and security researchers.
-
-It evaluates reported security vulnerabilities against supplied proof (HTTP traffic, execution logs, code snippets, or PoC output) using an Ollama-compatible local open-weight language model, strictly validates the assessment output with Pydantic v2 schemas, and produces clean Markdown triage reports.
-
----
-
-## Architecture & Guiding Constraints
-
-- **Evidence-First**: Triage decisions require verifiable technical proof; unsubstantiated assertions are flagged as `INSUFFICIENT_EVIDENCE` or `LIKELY_FALSE_POSITIVE`.
-- **Local & Private**: All inference runs against local endpoints (e.g. Ollama). No external cloud APIs, telemetry, or remote prompts.
-- **Zero Weight Presumption**: ProofSec AI never assumes a specific model is installed and **never downloads weights automatically**. It dynamically queries available models from your local endpoint.
-- **Strict Schema Enforcement**: LLM output is constrained to structured JSON and validated against Pydantic v2 data models.
-- **Lightweight & Hackathon-Sized**: Built without bloated multi-agent dependencies, databases, or autonomous exploitation tools.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Tests: 24 Passed](https://img.shields.io/badge/tests-24%20passed-brightgreen.svg)](tests/)
 
 ---
 
-## Project Structure
+## 1. The Problem ProofSec AI Solves
+
+Security operations centers (SOCs), Application Security (AppSec) teams, and bug bounty triage queues are inundated with vulnerability alerts from automated DAST, SAST, and external report submissions. 
+
+Two critical bottlenecks plague current workflows:
+1. **Unsubstantiated Claims & Hallucinations**: Automated scanners often flag issues based on heuristic pattern matching or timing noise without tangible proof of exploitability.
+2. **Confidentiality Risks**: Sending sensitive proprietary source code, internal hostnames, and zero-day execution logs to external commercial cloud AI APIs creates unacceptable privacy and compliance exposures.
+
+**ProofSec AI** resolves this by providing a lightweight, **evidence-first triage assistant** that evaluates reported security claims exclusively against supplied technical proof (HTTP traffic, server execution logs, code snippets) using **locally running open-weight language models**. It strictly separates verifiable technical observations from subjective interpretations, rejects fabricated evidence, and enforces Pydantic v2 schemas on all outputs.
+
+---
+
+## 2. Intended Users & Use Cases
+
+- **Application Security (AppSec) Engineers**: Pre-screening bug bounty submissions to filter out false positives before developer escalation.
+- **Security Operations (SOC) Analysts**: Quickly triaging web application firewall (WAF) or intrusion detection alerts against raw HTTP request/response traces.
+- **Independent Security Auditors**: Generating structured Markdown triage reports with remediation guidance for client deliverables.
+- **Development Teams**: Reviewing scanner reports during CI/CD triage to verify whether reported vulnerabilities have actionable proof.
+
+---
+
+## 3. Why Open-Source AI is Central to ProofSec AI
+
+Security triage involves the most sensitive data an organization possesses: live attack payloads, internal architectural endpoints, and exploit sequences. 
+
+Using open-source, open-weight AI models is a fundamental design requirement, not an afterthought:
+- **Zero Data Leakage (Local Privacy)**: Inference executes entirely on the local host (via an Ollama-compatible HTTP daemon on `localhost`). No telemetry, prompts, or vulnerability details leave your environment.
+- **Air-Gappable Deployment**: Can operate in strictly isolated, air-gapped development and high-security defense networks without Internet access.
+- **Deterministic & Auditable**: Open-weight models can be inspected, pinned, and audited. With zero temperature (`temperature=0.0`) and JSON schema-constrained decoding, output structures are repeatable and verifiable.
+- **No Vendor Lock-In**: Supports any open-weight architecture served by Ollama (e.g., Llama 3, Mistral, Qwen 2.5 Coder) without subscription fees or API rate limits.
+
+---
+
+## 4. Tested Runtime & Model Compatibility
+
+- **Inference Server**: [Ollama](https://ollama.com/) (local HTTP daemon serving `POST /api/chat` with structured JSON schema output).
+- **Default Base URL**: `http://localhost:11434` (configurable via `PROOFSEC_OLLAMA_URL`).
+- **Verified Local Open-Weight Models**:
+  - `llama3:8b` (Meta open-weight model)
+  - `mistral:7b` (Mistral AI open-weight model)
+  - `qwen2.5-coder:7b` (Alibaba Cloud open-weight model)
+
+> [!NOTE]
+> ProofSec AI **never automatically downloads model weights** and does not hardcode assumptions about installed models. It verifies whether an endpoint is live and queries installed models via `/api/tags`.
+> 
+> *Model Note:* We do not claim support for Gemma 4 or any model that has not been explicitly tested on this environment.
+
+---
+
+## 5. Architecture & Project Structure
 
 ```text
 proofsec/
-├── app.py                 # Streamlit interactive UI
-├── analyzer.py            # Local Ollama inference orchestrator & prompt logic
-├── schemas.py             # Pydantic v2 schemas for findings and triage results
-├── report.py              # Structured Markdown report generator
-├── requirements.txt       # Minimal, pinned dependencies
-├── tests/
-│   └── test_schemas.py    # Unit tests for schemas, parser, and reporting
-├── .gitignore             # Standard Python / Streamlit gitignore
-├── LICENSE                # MIT License + third-party & model disclaimers
-└── README.md              # Documentation & setup guide
+├── app.py                         # Streamlit interactive UI (input, evaluation tabs, markdown download)
+├── analyzer.py                    # Local Ollama client, prompt defense boundaries & schema validation
+├── schemas.py                     # Strict Pydantic v2 data models, enumerations & bounds
+├── report.py                      # Clean Markdown report generator with AI disclaimers
+├── examples.py                    # 5 realistic, manually reviewable triage scenarios
+├── requirements.txt               # Pinned dependencies (Pydantic v2, Streamlit, Requests, Pytest)
+├── pytest.ini                     # Pytest configuration (pythonpath = .)
+├── .gitignore                     # Ignores virtualenvs, caches, secrets, and IDE files
+├── LICENSE                        # MIT License with third-party & model disclaimers
+├── README.md                      # Comprehensive project documentation
+└── tests/
+    ├── test_schemas.py            # Unit tests for schemas, boundary limits, and report generation
+    ├── test_app.py                # End-to-end headless Streamlit tests using AppTest
+    └── test_regression_quality.py # Deterministic regression suite for Test Cases A through G
 ```
 
 ---
 
-## Prerequisites
+## 6. Installation & Configuration
 
-- **Python**: 3.11 or higher
-- **Local Inference Server**: [Ollama](https://ollama.com/) (or any compatible OpenAI/Ollama API server)
-- **Local Model**: Pull your preferred local open-weight model before running, e.g.:
-  ```bash
-  ollama pull mistral
-  # or
-  ollama pull llama3
-  # or
-  ollama pull qwen2.5-coder:7b
-  ```
+### Prerequisites
+- Python 3.11 or higher
+- [Ollama](https://ollama.com/) installed and running locally
 
----
-
-## Configuration
-
-ProofSec AI can be configured via environment variables or directly inside the Streamlit user interface sidebar:
-
-| Setting | Environment Variable | Default Value | Description |
-| :--- | :--- | :--- | :--- |
-| **Ollama Base URL** | `PROOFSEC_OLLAMA_URL` | `http://localhost:11434` | Base address of the local inference service |
-| **Default Model** | `PROOFSEC_MODEL` | `""` (Empty) | Target model identifier installed on the host |
+### Environment Variables (Optional)
+| Variable | Default Value | Description |
+| :--- | :--- | :--- |
+| `PROOFSEC_OLLAMA_URL` | `http://localhost:11434` | Base URL of local Ollama instance |
+| `PROOFSEC_MODEL` | `""` (Empty) | Pre-selected default model name |
 
 ---
 
-## Quickstart Setup & Launch
+## 7. Startup Commands
 
-### 1. Windows PowerShell
+### A. Windows (PowerShell)
 
 ```powershell
-# Navigate into repository
-cd d:\proofsec
+# 1. Clone and enter the repository
+git clone https://github.com/Neon-cipher/proofsec.git
+cd proofsec
 
-# Create and activate virtual environment
+# 2. Create and activate virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Run unit tests
-pytest
+# 4. Run automated test suite (offline)
+pytest -v
 
-# Launch Streamlit application
+# 5. Launch the Streamlit application
 streamlit run app.py
 ```
 
-### 2. Linux / macOS Bash
+### B. Linux / macOS (Bash)
 
 ```bash
-# Navigate into repository
-cd /path/to/proofsec
+# 1. Clone and enter the repository
+git clone https://github.com/Neon-cipher/proofsec.git
+cd proofsec
 
-# Create and activate virtual environment
+# 2. Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Run unit tests
-pytest
+# 4. Run automated test suite (offline)
+pytest -v
 
-# Launch Streamlit application
+# 5. Launch the Streamlit application
 streamlit run app.py
 ```
 
----
-
-## Usage Workflow
-
-1. Start your local Ollama daemon: `ollama serve` (if not already running).
-2. Open the Streamlit web dashboard in your browser (typically `http://localhost:8501`).
-3. In the sidebar, click **Test Connection** to detect available installed models from your local Ollama server.
-4. Select an installed model from the dropdown.
-5. In the main panel, enter finding information or click **Load Sample Finding for Testing**.
-6. Paste the technical proof (HTTP request/response, logs, code, or PoC execution).
-7. Click **Run Triage Analysis**.
-8. Review the verdict (`CONFIRMED`, `LIKELY_FALSE_POSITIVE`, `INSUFFICIENT_EVIDENCE`), confidence score, evidence quality, and remediation steps.
-9. Export or download the generated Markdown triage report for issue tracking.
+The app will start at **`http://localhost:8501`**.
 
 ---
 
-## Running Tests
+## 8. Working Example & Expected Analysis
 
-Run the test suite using `pytest`:
+ProofSec AI includes 5 pre-configured scenarios selectable directly in the UI via the **"Select Example Scenario"** dropdown:
 
-```bash
+### Example: Insufficient XSS Evidence (Escaped HTML)
+- **Title**: `Reflected Cross-Site Scripting (XSS) in Search Query`
+- **Supplied Evidence**:
+  ```text
+  GET /search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E HTTP/1.1
+  Host: example.com
+
+  HTTP Response Body:
+  <p>Search results for: &lt;script&gt;alert(1)&lt;/script&gt;</p>
+  ```
+- **Expected Analysis Behavior**:
+  - **Status**: `INSUFFICIENT_EVIDENCE` (Crucial: The model **must not** claim JavaScript execution has been established).
+  - **Factual Observations**: Direct fact that `<p>` tag reflects HTML entity-encoded `&lt;script&gt;`.
+  - **Analytical Interpretation**: Browser treats entity-encoded characters as text, neutralizing execution context.
+  - **Missing Evidence**: Proof of execution in an unencoded attribute or JavaScript execution block.
+  - **Confidence**: High confidence that current evidence is insufficient to verify exploitability.
+
+---
+
+## 9. Automated Testing & Verification
+
+The project includes an **offline unit and end-to-end regression test suite** that runs in under 3 seconds without requiring an active model or Internet access:
+
+```powershell
 pytest -v
+```
+
+### Actual Test Results (24 Passed / 0 Failed):
+```text
+tests/test_app.py::test_app_startup PASSED                               [  4%]
+tests/test_app.py::test_app_invalid_empty_input_rejected PASSED          [  8%]
+tests/test_app.py::test_app_successful_triage_flow PASSED                [ 12%]
+tests/test_app.py::test_app_model_failure_graceful_handling PASSED       [ 16%]
+tests/test_regression_quality.py::test_case_a_insufficient_xss_evidence PASSED [ 20%]
+tests/test_regression_quality.py::test_case_b_ambiguous_sql_injection PASSED [ 25%]
+tests/test_regression_quality.py::test_case_c_evidence_contradicts_claim PASSED [ 29%]
+tests/test_regression_quality.py::test_case_d_prompt_injection_inside_evidence PASSED [ 33%]
+tests/test_regression_quality.py::test_case_e_local_model_unavailable PASSED [ 37%]
+tests/test_regression_quality.py::test_case_f_invalid_model_output PASSED [ 41%]
+tests/test_regression_quality.py::test_case_g_oversized_input_rejected_before_network PASSED [ 45%]
+tests/test_schemas.py::test_valid_schema PASSED                          [ 50%]
+tests/test_schemas.py::test_invalid_confidence_out_of_bounds PASSED      [ 54%]
+tests/test_schemas.py::test_invalid_status_rejected PASSED               [ 58%]
+tests/test_schemas.py::test_invalid_severity_rejected PASSED             [ 62%]
+tests/test_schemas.py::test_empty_required_inputs PASSED                 [ 66%]
+tests/test_schemas.py::test_oversized_evidence_rejected PASSED           [ 70%]
+tests/test_schemas.py::test_analyzer_successful_inference PASSED         [ 75%]
+tests/test_schemas.py::test_analyzer_malformed_model_output PASSED       [ 79%]
+tests/test_schemas.py::test_analyzer_schema_violation_from_model PASSED  [ 83%]
+tests/test_schemas.py::test_analyzer_model_connection_failure PASSED     [ 87%]
+tests/test_schemas.py::test_analyzer_read_timeout_failure PASSED         [ 91%]
+tests/test_schemas.py::test_analyzer_model_404_not_found PASSED          [ 95%]
+tests/test_schemas.py::test_markdown_report_generation PASSED            [100%]
+
+============================= 24 passed in 2.80s ==============================
 ```
 
 ---
 
-## License & Attribution
+## 10. Responsible-Use Boundaries & Limitations
 
-This project is open-source under the [MIT License](LICENSE). Please review the license for third-party software and independent model weight distribution caveats.
+1. **Assistive, Not Autonomous**: ProofSec AI is an assistive triage tool. It **never automatically marks vulnerabilities as confirmed** without verifiable technical proof. A triage status of `SUPPORTED` denotes only that submitted logs or traces match the claim; it does **not** establish independent reproduction or confirmed exploitability.
+2. **Passive Text Analysis**: ProofSec AI never executes supplied scripts or commands and never sends HTTP traffic to target hosts mentioned in evidence.
+3. **Model Confidence Disclaimer**: The confidence score (0–100) measures internal consistency with the supplied text, **not** a calibrated mathematical probability of real-world exploitation.
+4. **Not a Statistical Benchmark**: The included 24-test suite verifies schema rules, input boundaries, and defensive prompt isolation. It is an engineering regression suite, not a formal statistical false-positive benchmark.
+
+---
+
+## 11. Third-Party Dependencies & Attribution
+
+- **[Streamlit](https://streamlit.io/)** (Apache 2.0): Web application framework.
+- **[Pydantic v2](https://docs.pydantic.dev/)** (MIT License): Data validation and schema enforcement.
+- **[Requests](https://requests.readthedocs.io/)** (Apache 2.0): HTTP client for Ollama communication.
+- **[Pytest](https://pytest.org/)** (MIT License): Automated testing framework.
+- **[Ollama](https://ollama.com/)** (MIT License): Local open-weight inference runtime.
+
+*Open-weight models accessed via Ollama (e.g. Llama 3, Mistral, Qwen) are distributed independently under their respective licenses. ProofSec AI neither bundles nor assumes ownership of third-party model weights.*
+
+---
+
+## 12. Quick Demo Walkthrough (90 Seconds)
+
+1. Open `http://localhost:8501`.
+2. In the sidebar, click **Verify Connection** to detect available models on your local Ollama server.
+3. Under **Select Example Scenario**, pick:
+   `Insufficient XSS Evidence (Escaped HTML)`
+4. Click **Load Preset** to populate the finding description and HTTP response snippet.
+5. Click **🚀 Analyze Evidence**.
+6. Observe the structured assessment:
+   - Status badge evaluates to `INSUFFICIENT_EVIDENCE`.
+   - The **Observations** tab explicitly notes that the input was HTML entity-escaped.
+   - The **Interpretations** tab confirms that script execution was not established.
+7. Click the **📄 Markdown Report** tab and click **📥 Download Markdown Report (.md)** to export the verified assessment.
