@@ -256,9 +256,8 @@ class LocalModelAnalyzer:
         raw_content = body["message"]["content"]
         parsed_json = self._parse_and_extract_json(raw_content)
 
-        # Enforce finding_title aligns with input finding title if missing or mismatched
-        if not parsed_json.get("finding_title"):
-            parsed_json["finding_title"] = finding.title
+        # Enforce authentic finding_title to prevent prompt injection from rewriting the finding title
+        parsed_json["finding_title"] = finding.title
 
         try:
             assessment = TriageAssessment.model_validate(parsed_json)

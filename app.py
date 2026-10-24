@@ -113,35 +113,34 @@ st.sidebar.markdown(
     """
 )
 
-# Preset for quick evaluation
-SAMPLE_FINDING = {
-    "title": "Unauthenticated Path Traversal via /download Parameter",
-    "target": "https://api.internal/download?file=",
-    "description": "Report alleges that directory traversal allows unauthorized access to server files.",
-    "evidence": (
-        "HTTP Request:\n"
-        "GET /download?file=../../../../etc/passwd HTTP/1.1\n"
-        "Host: api.internal\n\n"
-        "HTTP Response:\n"
-        "HTTP/1.1 200 OK\n"
-        "Content-Type: text/plain\n\n"
-        "root:x:0:0:root:/root:/bin/bash\n"
-        "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
-    ),
-}
+from examples import EXAMPLES
 
-def load_sample_preset():
-    st.session_state.f_title = SAMPLE_FINDING["title"]
-    st.session_state.f_target = SAMPLE_FINDING["target"]
-    st.session_state.f_desc = SAMPLE_FINDING["description"]
-    st.session_state.f_evidence = SAMPLE_FINDING["evidence"]
+# Preset loader function
+def load_selected_preset():
+    choice = st.session_state.get("preset_selection")
+    if choice and choice in EXAMPLES:
+        item = EXAMPLES[choice]
+        st.session_state.f_title = item["title"]
+        st.session_state.f_target = item.get("target", "")
+        st.session_state.f_desc = item.get("description", "")
+        st.session_state.f_evidence = item["evidence"]
 
 col_input, col_output = st.columns([1, 1], gap="medium")
 
 with col_input:
     st.subheader("1. Finding & Evidence Input")
 
-    st.button("Load Sample Finding Preset", on_click=load_sample_preset)
+    col_p1, col_p2 = st.columns([2, 1])
+    with col_p1:
+        st.selectbox(
+            "Select Example Scenario",
+            options=list(EXAMPLES.keys()),
+            key="preset_selection",
+            help="Choose a pre-configured realistic triage scenario to evaluate.",
+        )
+    with col_p2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        st.button("Load Preset", on_click=load_selected_preset, use_container_width=True)
 
     title = st.text_input(
         "Finding Title *",

@@ -45,7 +45,7 @@ def test_app_successful_triage_flow():
     model_input.input("mock-llama3").run()
 
     # Load preset
-    load_preset_btn = next((b for b in at.button if "Load Sample Finding Preset" in b.label), None)
+    load_preset_btn = next((b for b in at.button if "Load Preset" in b.label), None)
     assert load_preset_btn is not None
     load_preset_btn.click().run()
 
@@ -100,7 +100,7 @@ def test_app_model_failure_graceful_handling():
     model_input.input("mock-model").run()
 
     # Load preset
-    load_preset_btn = next((b for b in at.button if "Load Sample Finding Preset" in b.label), None)
+    load_preset_btn = next((b for b in at.button if "Load Preset" in b.label), None)
     load_preset_btn.click().run()
 
     # Simulate connection error
